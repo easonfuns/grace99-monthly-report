@@ -263,34 +263,21 @@ const MK = ['f1','f2','f3','f4','f5','f6'];
 let dealers = [], teams = [], reports = [];
 let dashUnlocked = false, adminUnlocked = false;
 
-// 用 JSONP 方式讀取（解決 CORS GET 問題）
-function getFromSheet() {
-  return new Promise((resolve, reject) => {
-    const cbName = 'cb_' + Date.now();
-    const script = document.createElement('script');
-    const timeout = setTimeout(() => {
-      delete window[cbName];
-      script.remove();
-      reject(new Error('timeout'));
-    }, 10000);
-    window[cbName] = (data) => {
-      clearTimeout(timeout);
-      delete window[cbName];
-      script.remove();
-      resolve(data);
-    };
-    script.src = API + '?action=getAll&callback=' + cbName;
-    script.onerror = () => { clearTimeout(timeout); reject(new Error('script error')); };
-    document.head.appendChild(script);
+// 讀取用 GET（Apps Script doGet 允許跨域）
+async function getFromSheet() {
+  const res = await fetch(API + '?t=' + Date.now(), {
+    method: 'GET',
+    redirect: 'follow'
   });
+  return res.json();
 }
 
-// POST 用 no-cors（只送出，不讀回應）
+// 寫入用 POST no-cors
 async function postToSheet(data) {
   await fetch(API, {
     method: 'POST',
     mode: 'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(data)
   });
 }
@@ -355,9 +342,13 @@ async function loadFromSheet() {
 async function saveConfig() {
   try {
     await postToSheet({ action: 'saveConfig', dealers, teams });
-    // POST no-cors 無法確認回應，等 1.5 秒後重新讀取確認
-    await new Promise(r => setTimeout(r, 1500));
-    await loadFromSheet();
+    await new Promise(r => setTimeout(r, 2000));
+    const data = await getFromSheet();
+    dealers = data.dealers || [];
+    teams = data.teams || [];
+    refreshAdmin();
+    refreshSubmitDropdown();
+    refreshDashDropdowns();
   } catch(e) {
     showAlert('admin-alert','error','儲存失敗，請再試一次');
   }
