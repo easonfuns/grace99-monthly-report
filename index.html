@@ -230,7 +230,8 @@ body{font-family:'Noto Sans TC',sans-serif;background:#f5f4f0;color:#1a1a1a;min-
 </div>
 
 <script>
-const API = 'https://script.google.com/macros/s/AKfycby7eGDF-JMVgPSs0CT3ngig9jpMn3brmVm6OYbv_hEUBA3JK9VHjrfm74cxrpmFOOt4/exec';
+// ★ 部署新 Apps Script 後，把網址貼在這裡
+const API = 'https://script.google.com/macros/s/AKfycby7zOHM4D17C8Ri6k_kfAQcA1LgSi31yQeiTPpc_t1iAIR19S7sUTWHEG0cugYz2bCY/exec';
 const PW_DASH = 'Grace99';
 const PW_ADMIN = '5092';
 const MSHORT = ['潛在名單','恩典卡','線上課程','家庭日','健康卡','B11'];
@@ -239,19 +240,6 @@ const MK = ['f1','f2','f3','f4','f5','f6'];
 
 let dealers = [], teams = [], reports = [];
 let dashUnlocked = false, adminUnlocked = false;
-
-function checkSavedPasswords() {
-  if (sessionStorage.getItem('dash_ok') === '1') {
-    dashUnlocked = true;
-    document.getElementById('dash-lock').style.display = 'none';
-    document.getElementById('dash-content').style.display = 'block';
-  }
-  if (sessionStorage.getItem('admin_ok') === '1') {
-    adminUnlocked = true;
-    document.getElementById('admin-lock').style.display = 'none';
-    document.getElementById('admin-content').style.display = 'block';
-  }
-}
 
 function getWeekStr(d) {
   d = d || new Date();
@@ -273,54 +261,14 @@ const cw = getWeekStr();
 document.getElementById('s-week').value = cw;
 document.getElementById('header-week').textContent = '當前週次：' + cw;
 
-const SHEET_ID = '1EpcOctN1ThpZULYAzmSw5x_M8IQ9j102xHlvl7yRcfs';
-
-// 讀取用 Google Sheets 公開 API，完全不需要 Apps Script
-async function getFromSheet() {
-  const base = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=out:json&sheet=';
-
-  async function fetchSheet(sheetName) {
-    const res = await fetch(base + encodeURIComponent(sheetName));
-    const text = await res.text();
-    // Google 回傳的格式是 google.visualization.Query.setResponse({...})
-    const json = JSON.parse(text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
-    const rows = json.table.rows;
-    return rows.map(r => r.c.map(c => c ? (c.v !== null && c.v !== undefined ? c.v : '') : ''));
-  }
-
-  const result = {};
-
-  try {
-    const reportRows = await fetchSheet('填報紀錄');
-    result.reports = reportRows.slice(1).map(r => ({
-      week: String(r[1]||''), did: String(r[2]||''), dname: String(r[3]||''), team: String(r[4]||''),
-      m: [r[5],r[6],r[7],r[8],r[9],r[10]].map(v => parseInt(v)||0)
-    })).filter(r => r.week);
-  } catch(e) { result.reports = []; }
-
-  try {
-    const dealerRows = await fetchSheet('經銷商名單');
-    result.dealers = dealerRows.slice(1).map(r => ({
-      id: String(r[0]||''), name: String(r[1]||''), team: String(r[2]||'')
-    })).filter(d => d.name);
-  } catch(e) { result.dealers = []; }
-
-  try {
-    const teamRows = await fetchSheet('團隊名單');
-    result.teams = teamRows.slice(1).map(r => String(r[0]||'')).filter(t => t);
-  } catch(e) { result.teams = []; }
-
-  return result;
-}
-
-// 寫入用 POST no-cors
-async function postToSheet(data) {
-  await fetch(API, {
+// ★ 核心：所有請求統一用 POST + text/plain（避開 CORS preflight）
+async function api(data) {
+  const res = await fetch(API, {
     method: 'POST',
-    mode: 'no-cors',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(data)
   });
+  return res.json();
 }
 
 function setSyncStatus(state) {
@@ -334,28 +282,27 @@ function setSyncStatus(state) {
 async function loadFromSheet() {
   setSyncStatus('syncing');
   try {
-    const data = await getFromSheet();
+    const data = await api({ action: 'getAll' });
     dealers = data.dealers || [];
     teams = data.teams || [];
     reports = data.reports || [];
     setSyncStatus('ok');
     refreshSubmitDropdown();
-    refreshDashDropdowns(); // 這裡面已經包含 renderPersonal/renderTeam
+    refreshDashDropdowns();
     if (adminUnlocked) refreshAdmin();
   } catch(e) {
     setSyncStatus('error');
-    console.error('loadFromSheet error:', e);
+    console.error('load error:', e);
     showAlert('submit-alert','error','連線失敗，請按重新整理再試');
   }
 }
 
 async function saveConfig() {
   try {
-    await postToSheet({ action: 'saveConfig', dealers, teams });
-    showAlert('admin-alert','success','儲存中，請稍候...');
-    await new Promise(r => setTimeout(r, 2000));
-    await loadFromSheet();
-    showAlert('admin-alert','success','✓ 已儲存並同步');
+    await api({ action: 'saveConfig', dealers, teams });
+    showAlert('admin-alert','success','✓ 已儲存');
+    refreshAdmin();
+    refreshSubmitDropdown();
   } catch(e) {
     showAlert('admin-alert','error','儲存失敗，請再試一次');
   }
@@ -401,7 +348,7 @@ function switchDash(tab, btn) {
 function unlockDash() {
   if (document.getElementById('dash-pw').value === PW_DASH) {
     dashUnlocked = true;
-    sessionStorage.setItem('dash_ok', '1');
+    sessionStorage.setItem('dash_ok','1');
     document.getElementById('dash-lock').style.display = 'none';
     document.getElementById('dash-content').style.display = 'block';
     loadFromSheet();
@@ -413,13 +360,25 @@ function unlockDash() {
 function unlockAdmin() {
   if (document.getElementById('admin-pw').value === PW_ADMIN) {
     adminUnlocked = true;
-    sessionStorage.setItem('admin_ok', '1');
+    sessionStorage.setItem('admin_ok','1');
     document.getElementById('admin-lock').style.display = 'none';
     document.getElementById('admin-content').style.display = 'block';
     loadFromSheet();
   } else {
     document.getElementById('admin-err').textContent = '密碼錯誤，請再試一次';
     document.getElementById('admin-pw').value = '';
+  }
+}
+function checkSavedPasswords() {
+  if (sessionStorage.getItem('dash_ok') === '1') {
+    dashUnlocked = true;
+    document.getElementById('dash-lock').style.display = 'none';
+    document.getElementById('dash-content').style.display = 'block';
+  }
+  if (sessionStorage.getItem('admin_ok') === '1') {
+    adminUnlocked = true;
+    document.getElementById('admin-lock').style.display = 'none';
+    document.getElementById('admin-content').style.display = 'block';
   }
 }
 
@@ -445,11 +404,10 @@ async function submitReport() {
   const week = getWeekStr();
   const m = MK.map(k => parseInt(document.getElementById(k).value) || 0);
   const dealer = dealers.find(d => d.id === did);
-
   const btn = document.getElementById('submit-btn');
   btn.disabled = true; btn.textContent = '送出中...';
   try {
-    await postToSheet({ action: 'submit', did, dname: dealer.name, team: dealer.team||'', week, m });
+    await api({ action: 'submit', did, dname: dealer.name, team: dealer.team||'', week, m });
     showAlert('submit-alert','success','✓ 填報完成！數據已儲存到雲端');
     clearSubmit();
     reports.push({ did, dname: dealer.name, team: dealer.team||'', week, m });
@@ -470,7 +428,6 @@ function refreshDashDropdowns() {
     ds.appendChild(o);
   });
   if (c1) ds.value = c1;
-
   const ts = document.getElementById('d-team');
   const c2 = ts.value;
   ts.innerHTML = '<option value="">— 選擇團隊 —</option>';
@@ -479,8 +436,6 @@ function refreshDashDropdowns() {
     o.value = t; o.textContent = t; ts.appendChild(o);
   });
   if (c2) ts.value = c2;
-
-  // 選單更新後，如果有選擇就重新渲染
   if (ds.value) renderPersonal();
   if (ts.value) renderTeam();
 }
@@ -491,6 +446,7 @@ function renderPersonal() {
   const el = document.getElementById('personal-out');
   if (!did) { el.innerHTML = '<div class="empty-state">請選擇經銷商</div>'; return; }
   const dealer = dealers.find(d => d.id === did);
+  if (!dealer) { el.innerHTML = '<div class="empty-state">請選擇經銷商</div>'; return; }
   const recs = filterRecs({ dealerId: did, period });
   const totals = sumM(recs);
   const pl = period==='week'?'本週':period==='month'?'本月':'全部時間';
@@ -586,14 +542,12 @@ async function addTeam() {
   if (teams.includes(nm)) { alert('此團隊已存在'); return; }
   teams.push(nm);
   document.getElementById('a-team-name').value = '';
-  refreshAdmin();
   await saveConfig();
 }
 async function removeTeam(t) {
   if (!confirm('移除團隊「' + t + '」？')) return;
   teams = teams.filter(x => x !== t);
   dealers = dealers.map(d => d.team === t ? Object.assign({}, d, {team:''}) : d);
-  refreshAdmin(); refreshSubmitDropdown();
   await saveConfig();
 }
 async function addDealer() {
@@ -603,13 +557,11 @@ async function addDealer() {
   if (dealers.find(d => d.name === name)) { alert('此姓名已存在'); return; }
   dealers.push({ id: Date.now().toString(), name, team: team||'' });
   document.getElementById('a-name').value = '';
-  refreshAdmin(); refreshSubmitDropdown();
   await saveConfig();
 }
 async function removeDealer(id) {
   if (!confirm('確定移除此經銷商？')) return;
   dealers = dealers.filter(d => d.id !== id);
-  refreshAdmin(); refreshSubmitDropdown();
   await saveConfig();
 }
 
