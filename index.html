@@ -64,6 +64,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:#f5f4f0;color:#1a1a1a;min-
 .tag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:500;}
 .tag.blue{background:#e8f0f5;color:#2c5f7a;}
 .tag.green{background:#eaf3de;color:#3b6d11;}
+.tag.amber{background:#faeeda;color:#854f0b;}
 .week-badge{font-size:11px;background:#e8f0f5;color:#2c5f7a;padding:2px 9px;border-radius:99px;font-weight:500;display:inline-block;}
 .person-list{display:flex;flex-direction:column;gap:6px;}
 .person-item{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:#f8f7f4;border-radius:8px;border:1px solid #eee;}
@@ -73,7 +74,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:#f5f4f0;color:#1a1a1a;min-
 .divider{height:1px;background:#f0ede8;margin:14px 0;}
 .section-label{font-size:11px;font-weight:500;color:#999;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;}
 .inline-row{display:flex;gap:8px;align-items:center;}
-.sub-tab-bar{display:flex;gap:6px;margin-bottom:1rem;padding:4px;background:#ebe9e4;border-radius:10px;width:fit-content;}
+.sub-tab-bar{display:flex;gap:6px;margin-bottom:1rem;padding:4px;background:#ebe9e4;border-radius:10px;width:fit-content;flex-wrap:wrap;}
 .week-readonly{background:#f8f7f4;color:#888;}
 .sync-bar{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#f0ede8;border-radius:8px;margin-bottom:12px;font-size:12px;color:#888;}
 .sync-dot{width:7px;height:7px;border-radius:50%;background:#97c459;display:inline-block;margin-right:5px;}
@@ -152,28 +153,48 @@ body{font-family:'Noto Sans TC',sans-serif;background:#f5f4f0;color:#1a1a1a;min-
       <div class="sub-tab-bar">
         <button class="mode-btn active" onclick="switchDash('personal',this)">個人數據</button>
         <button class="mode-btn" onclick="switchDash('team',this)">團隊數據</button>
+        <button class="mode-btn" onclick="switchDash('allteams',this)">總團隊數據</button>
       </div>
+
+      <!-- 個人數據 -->
       <div id="dash-personal">
         <div class="filter-row">
           <select id="d-dealer" onchange="renderPersonal()"><option value="">— 選擇經銷商 —</option></select>
           <select id="d-period" onchange="renderPersonal()">
             <option value="week">本週</option>
+            <option value="7days">7天內</option>
             <option value="month">本月</option>
             <option value="all">全部</option>
           </select>
         </div>
         <div id="personal-out"><div class="empty-state">請選擇經銷商</div></div>
       </div>
+
+      <!-- 團隊數據 -->
       <div id="dash-team" style="display:none;">
         <div class="filter-row">
           <select id="d-team" onchange="renderTeam()"><option value="">— 選擇團隊 —</option></select>
           <select id="d-team-period" onchange="renderTeam()">
             <option value="week">本週</option>
+            <option value="7days">7天內</option>
             <option value="month">本月</option>
             <option value="all">全部</option>
           </select>
         </div>
         <div id="team-out"><div class="empty-state">請選擇團隊</div></div>
+      </div>
+
+      <!-- 總團隊數據 -->
+      <div id="dash-allteams" style="display:none;">
+        <div class="filter-row">
+          <select id="d-all-period" onchange="renderAllTeams()">
+            <option value="week">本週</option>
+            <option value="7days">7天內</option>
+            <option value="month">本月</option>
+            <option value="all">全部</option>
+          </select>
+        </div>
+        <div id="allteams-out"><div class="empty-state">載入中...</div></div>
       </div>
     </div>
   </div>
@@ -230,7 +251,6 @@ body{font-family:'Noto Sans TC',sans-serif;background:#f5f4f0;color:#1a1a1a;min-
 </div>
 
 <script>
-// ★ 部署新 Apps Script 後，把網址貼在這裡
 const API = 'https://script.google.com/macros/s/AKfycby7zOHM4D17C8Ri6k_kfAQcA1LgSi31yQeiTPpc_t1iAIR19S7sUTWHEG0cugYz2bCY/exec';
 const PW_DASH = 'Grace99';
 const PW_ADMIN = '5092';
@@ -256,12 +276,17 @@ function weekToMonth(ws) {
   const d = new Date(parseInt(parts[0]), 0, 1 + (parseInt(parts[1])-1)*7);
   return getMonthStr(d);
 }
+// 週次字串轉換為日期（取該週的週一）
+function weekStrToDate(ws) {
+  const parts = ws.split('-W');
+  const d = new Date(parseInt(parts[0]), 0, 1 + (parseInt(parts[1])-1)*7);
+  return d;
+}
 
 const cw = getWeekStr();
 document.getElementById('s-week').value = cw;
 document.getElementById('header-week').textContent = '當前週次：' + cw;
 
-// ★ 核心：所有請求統一用 POST + text/plain（避開 CORS preflight）
 async function api(data) {
   const res = await fetch(API, {
     method: 'POST',
@@ -316,10 +341,15 @@ function filterRecs(opts) {
     r = r.filter(x => ids.includes(x.did));
   }
   const nw = getWeekStr(), nm = getMonthStr();
+  const now = new Date();
+  const day7ago = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
   if (opts.period === 'week') r = r.filter(x => x.week === nw);
+  if (opts.period === '7days') r = r.filter(x => weekStrToDate(x.week) >= day7ago);
   if (opts.period === 'month') r = r.filter(x => weekToMonth(x.week) === nm);
   return r;
 }
+
 function sumM(recs) {
   const t = [0,0,0,0,0,0];
   recs.forEach(r => r.m.forEach((v,i) => t[i] += (parseInt(v)||0)));
@@ -331,6 +361,9 @@ function showAlert(zoneId, type, msg) {
   el.innerHTML = '<div class="alert ' + type + '">' + msg + '</div>';
   setTimeout(() => el.innerHTML = '', 4000);
 }
+function periodLabel(p) {
+  return p==='week'?'本週':p==='7days'?'7天內':p==='month'?'本月':'全部時間';
+}
 
 function switchMode(id, btn) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -341,8 +374,10 @@ function switchMode(id, btn) {
 function switchDash(tab, btn) {
   document.getElementById('dash-personal').style.display = tab==='personal'?'block':'none';
   document.getElementById('dash-team').style.display = tab==='team'?'block':'none';
+  document.getElementById('dash-allteams').style.display = tab==='allteams'?'block':'none';
   document.querySelectorAll('.sub-tab-bar .mode-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  if (tab === 'allteams') renderAllTeams();
 }
 
 function unlockDash() {
@@ -449,7 +484,7 @@ function renderPersonal() {
   if (!dealer) { el.innerHTML = '<div class="empty-state">請選擇經銷商</div>'; return; }
   const recs = filterRecs({ dealerId: did, period });
   const totals = sumM(recs);
-  const pl = period==='week'?'本週':period==='month'?'本月':'全部時間';
+  const pl = periodLabel(period);
   el.innerHTML = '<div class="card">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
     '<div style="font-size:15px;font-weight:700;">' + dealer.name + '</div>' +
@@ -475,7 +510,7 @@ function renderTeam() {
   if (!team) { el.innerHTML = '<div class="empty-state">請選擇團隊</div>'; return; }
   const members = dealers.filter(d => d.team === team);
   const totals = sumM(filterRecs({ team, period }));
-  const pl = period==='week'?'本週':period==='month'?'本月':'全部時間';
+  const pl = periodLabel(period);
   const memberRows = members.map(m => {
     const mr = filterRecs({ dealerId: m.id, period });
     const mt = sumM(mr);
@@ -496,6 +531,52 @@ function renderTeam() {
     '<div style="overflow-x:auto;"><table class="member-table"><thead><tr><th>姓名</th>' +
     MSHORT.map(s => '<th>' + s + '</th>').join('') + '<th>填報</th></tr></thead><tbody>' +
     memberRows + '</tbody></table></div>') + '</div>';
+}
+
+function renderAllTeams() {
+  const period = document.getElementById('d-all-period').value;
+  const el = document.getElementById('allteams-out');
+  const pl = periodLabel(period);
+  const allRecs = filterRecs({ period });
+  const grandTotal = sumM(allRecs);
+
+  // 每個團隊的數據
+  const teamRows = teams.map(team => {
+    const tr = filterRecs({ team, period });
+    const tt = sumM(tr);
+    const memberCount = dealers.filter(d => d.team === team).length;
+    return '<tr>' +
+      '<td style="font-weight:600;">' + team + '</td>' +
+      '<td style="font-size:11px;color:#aaa;text-align:center;">' + memberCount + '人</td>' +
+      tt.map(v => '<td class="num-cell">' + v + '</td>').join('') + '</tr>';
+  }).join('');
+
+  // 未分配團隊的人
+  const unassigned = dealers.filter(d => !d.team);
+  let unassignedRow = '';
+  if (unassigned.length > 0) {
+    const ur = reports.filter(r => unassigned.map(d=>d.id).includes(r.did));
+    const ut = sumM(filterRecs({ period }).filter(r => unassigned.map(d=>d.id).includes(r.did)));
+    unassignedRow = '<tr style="opacity:0.6;">' +
+      '<td style="font-weight:500;">未分配</td>' +
+      '<td style="font-size:11px;color:#aaa;text-align:center;">' + unassigned.length + '人</td>' +
+      ut.map(v => '<td class="num-cell">' + v + '</td>').join('') + '</tr>';
+  }
+
+  el.innerHTML = '<div class="card">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+    '<div style="font-size:15px;font-weight:700;">所有團隊</div>' +
+    '<span class="tag amber">' + teams.length + ' 個團隊</span></div>' +
+    '<div class="summary-band"><div class="band-label">' + pl + '全體總計</div>' +
+    '<div class="summary-numbers">' +
+    MLABEL.map((l,i) => '<div class="snum"><div class="n">' + grandTotal[i] + '</div><div class="l">' + MSHORT[i] + '</div></div>').join('') +
+    '</div></div><div class="divider"></div><div class="section-label">各團隊比較</div>' +
+    (teams.length===0 ? '<div class="empty-state">尚無團隊資料</div>' :
+    '<div style="overflow-x:auto;"><table class="member-table"><thead><tr>' +
+    '<th>團隊</th><th style="text-align:center;">人數</th>' +
+    MSHORT.map(s => '<th>' + s + '</th>').join('') + '</tr></thead><tbody>' +
+    teamRows + unassignedRow +
+    '</tbody></table></div>') + '</div>';
 }
 
 function refreshAdmin() {
